@@ -48,7 +48,7 @@ class AutoEncoderModel(IModel):
                 layers.TimeDistributed(layers.Dense(self.x_train.shape[2])),
             ]
         )
-        self.nn.compile(optimizer=keras.optimizers.Adam(lr=self.lr), loss="mse")
+        self.nn.compile(optimizer=keras.optimizers.Adam(learning_rate=self.lr), loss="mse")
         self.nn.summary()
 
     def __calculate_pred_and_err(self, data):

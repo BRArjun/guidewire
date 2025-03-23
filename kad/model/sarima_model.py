@@ -1,3 +1,4 @@
+# sarima_model.py
 import logging
 import warnings
 from typing import Tuple
@@ -7,7 +8,6 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn.model_selection import train_test_split
 import kad.kad_utils.kad_utils as kad_utils
 from kad.model import i_model
-
 
 class SarimaModel(i_model.IModel):
     def __init__(self, order: Tuple[int, int, int], seasonal_order: Tuple[int, int, int, int], train_valid_ratio=0.7):
@@ -26,17 +26,6 @@ class SarimaModel(i_model.IModel):
         return np.max(valid_errors)
 
     def train(self, train_df: pd.DataFrame) -> float:
-        """
-        @:param train_df: training data frame
-        Takes training dataframe and:
-            - fits the model using [:self.train_valid_ratio] part of the passed dataframe
-            - using the fitted model predicts [self.train_valid_ratio:] part of the passed dataframe and stores:
-                a) predictions
-                b) forecast error
-                c) threshold set to 2*max(forecast error) which is used in testing part to calculate the anomaly score
-        @:returns validation error
-        """
-
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
 
@@ -48,25 +37,32 @@ class SarimaModel(i_model.IModel):
                                  enforce_stationarity=True,
                                  enforce_invertibility=False)
             self.model_results = self.model.fit()
-            # print(self.model_results.summary())
 
             forecast: np.ndarray = self.model_results.forecast(len(valid_df))
             ground_truth = valid_df.to_numpy().flatten()
-            self.model_results = self.model_results.append(ground_truth)
+            
+            # Handle model results update
+            try:
+                self.model_results = self.model_results.append(ground_truth)
+            except AttributeError:
+                self.model_results = self.model_results.extend(ground_truth)
 
             abs_error = np.abs(forecast - ground_truth)
             self.error_threshold = self.__calculate_threshold(abs_error)
 
+            # Initialize results dataframe with proper columns
             self.results_df = train_df.copy()
-            self.results_df[kad_utils.PREDICTIONS_COLUMN] = np.full(len(self.results_df), None)
-            self.results_df[kad_utils.ERROR_COLUMN] = np.full(len(self.results_df), None)
-            self.results_df[kad_utils.ANOM_SCORE_COLUMN] = np.full(len(self.results_df), None)
+            self.results_df[kad_utils.PREDICTIONS_COLUMN] = np.nan
+            self.results_df[kad_utils.ERROR_COLUMN] = np.nan
+            self.results_df[kad_utils.ANOM_SCORE_COLUMN] = np.nan
+            self.results_df[kad_utils.ANOMALIES_COLUMN] = False
 
-            self.results_df[kad_utils.ANOMALIES_COLUMN] = np.full(len(self.results_df), False)
-            self.results_df.loc[:, kad_utils.PREDICTIONS_COLUMN].iloc[-len(valid_df):] = forecast
-            self.results_df.loc[:, kad_utils.ERROR_COLUMN].iloc[-len(valid_df):] = abs_error
+            # Assign values to the last part of the dataframe
+            last_idx = len(valid_df)
+            self.results_df.iloc[-last_idx:, self.results_df.columns.get_loc(kad_utils.PREDICTIONS_COLUMN)] = forecast
+            self.results_df.iloc[-last_idx:, self.results_df.columns.get_loc(kad_utils.ERROR_COLUMN)] = abs_error
 
-            logging.info("SARIMA anomaly threshold set to: " + str(self.error_threshold))
+            logging.info(f"SARIMA anomaly threshold set to: {self.error_threshold:.4f}")
             self.trained = True
             return kad_utils.calculate_validation_err(forecast, ground_truth)
 
@@ -74,22 +70,43 @@ class SarimaModel(i_model.IModel):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
 
+            # Generate forecast and errors
             forecast = self.model_results.forecast(len(test_df))
             abs_error = np.abs(forecast - test_df.to_numpy().flatten())
 
-            self.results_df = pd.concat([self.results_df, test_df.copy()])
-            self.results_df.loc[:, kad_utils.PREDICTIONS_COLUMN].iloc[-len(forecast):] = forecast
-            self.results_df.loc[:, kad_utils.ERROR_COLUMN].iloc[-len(forecast):] = abs_error
-            self.results_df.loc[:, kad_utils.ANOM_SCORE_COLUMN].iloc[-len(forecast):] = kad_utils.calculate_anomaly_score(
-                self.results_df[kad_utils.ERROR_COLUMN], self.error_threshold)[-len(forecast):]
-            self.results_df.loc[:, kad_utils.ANOMALIES_COLUMN].iloc[-len(forecast):] = \
-                np.any(self.results_df[kad_utils.ANOM_SCORE_COLUMN].iloc[-len(forecast):]
-                       .to_numpy().flatten() >= self.anomaly_score_threshold)
-            self.results_df[kad_utils.ANOMALIES_COLUMN] = self.results_df[kad_utils.ANOMALIES_COLUMN].astype("bool")
+            # Prepare test_df with required columns
+            test_df = test_df.copy()
+            test_df[kad_utils.PREDICTIONS_COLUMN] = np.nan
+            test_df[kad_utils.ERROR_COLUMN] = np.nan
+            test_df[kad_utils.ANOM_SCORE_COLUMN] = np.nan
+            test_df[kad_utils.ANOMALIES_COLUMN] = False
 
-            if np.any(self.results_df.iloc[-len(forecast):][kad_utils.ANOMALIES_COLUMN]):
-                self.model_results = self.model_results.append(forecast)
+            # Update the test_df with new values
+            test_df.loc[:, kad_utils.PREDICTIONS_COLUMN] = forecast
+            test_df.loc[:, kad_utils.ERROR_COLUMN] = abs_error
+            test_df.loc[:, kad_utils.ANOM_SCORE_COLUMN] = kad_utils.calculate_anomaly_score(
+                abs_error, self.error_threshold
+            )
+            test_df.loc[:, kad_utils.ANOMALIES_COLUMN] = (
+                test_df[kad_utils.ANOM_SCORE_COLUMN] >= self.anomaly_score_threshold
+            )
+
+            # Concatenate results
+            self.results_df = pd.concat([self.results_df, test_df], axis=0)
+
+            # Update model results
+            if np.any(test_df[kad_utils.ANOMALIES_COLUMN]):
+                try:
+                    self.model_results = self.model_results.append(forecast)
+                except AttributeError:
+                    self.model_results = self.model_results.extend(forecast)
             else:
-                self.model_results = self.model_results.append(test_df.values)
+                try:
+                    self.model_results = self.model_results.append(test_df.values)
+                except AttributeError:
+                    self.model_results = self.model_results.extend(test_df.values)
 
             return self.results_df
+
+    def get_results(self) -> pd.DataFrame:
+        return self.results_df.copy()

@@ -45,7 +45,7 @@ class LstmModel(IModel):
                 layers.Dense(self.y_train.shape[1]),
             ]
         )
-        self.nn.compile(optimizer=keras.optimizers.Adam(lr=0.001), loss="mse")
+        self.nn.compile(optimizer=keras.optimizers.Adam(learning_rate=0.001), loss="mse")
         self.nn.summary()
 
     def __update_threshold(self):

@@ -27,7 +27,7 @@ class HmmModel(i_model.IModel):
             self.model.fit(tr_df)
 
         train_states = self.model.predict(tr_df)
-        train_samples = [self.model._generate_sample_from_state(s)[0] for s in train_states]
+        train_samples = [self.model._generate_sample_from_state(s, random_state=np.random.RandomState())[0] for s in train_states]
 
         residuals = tr_df.values.squeeze() - train_samples
         absolute_error = np.abs(residuals)
@@ -37,7 +37,7 @@ class HmmModel(i_model.IModel):
 
         ground_truth = valid_df.to_numpy().flatten()
         valid_states = self.model.predict(valid_df)
-        valid_samples = [self.model._generate_sample_from_state(s)[0] for s in valid_states]
+        valid_samples = [self.model._generate_sample_from_state(s, random_state=np.random.RandomState())[0] for s in valid_states]
 
         self.trained = True
 
@@ -50,7 +50,7 @@ class HmmModel(i_model.IModel):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             states = self.model.predict(test_df)
-            samples = [self.model._generate_sample_from_state(s)[0] for s in states]
+            samples = [self.model._generate_sample_from_state(s, random_state=np.random.RandomState())[0] for s in states]
 
             residuals = test_df.values.squeeze() - samples
             absolute_error = np.abs(residuals)
