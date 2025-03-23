@@ -1,0 +1,19 @@
+.Button {
+    color: black;
+}
+
+.Button:disabled {
+    color: white;
+}
+
+.results-div-inner,
+.results-div-outer {
+    display: flex;
+    justify-content: center;
+    padding-bottom: 30px;
+    padding-top: 30px;
+}
+
+.results-div-outer {
+    flex-direction: column;
+}

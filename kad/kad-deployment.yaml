@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kad
+  labels:
+    name: kad
+  namespace: kad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: kad
+  template:
+    metadata:
+      labels:
+        name: kad
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - master
+      containers:
+      - name: kad
+        image: kad
+        imagePullPolicy: Never
+        command: ["python3", "kad/main.py"]
+        volumeMounts:
+          - name: kad-config
+            mountPath: /kad/config
+      nodeSelector:
+        beta.kubernetes.io/os: linux
+      volumes:
+        - name: kad-config
+          configMap:
+            name: kad-config-file
